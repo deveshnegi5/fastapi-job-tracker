@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException,Query
 from fastapi.security import OAuth2PasswordRequestForm
 from app.database import Base, engine,get_db
 from app.dependencies import current_user
@@ -6,9 +6,11 @@ from app.security import hash_password, verify_password, create_access_token
 from app.models import Application, User
 from sqlalchemy.orm import Session
 from app import schemas
+from typing import Optional
 
 
 app=FastAPI()
+ALLOWED_SORT_FIELDS = {"created_at", "company", "role", "status"}
 
 # Base.metadata.create_all(bind=engine)
 @app.get("/")
@@ -45,15 +47,37 @@ def add_data(data: schemas.ApplicationCreate,db:Session=Depends(get_db),user:Use
     db.refresh(app)
     return app
 
-@app.get("/applications", response_model=list[schemas.Applicationout])
-def get_data(db:Session= Depends(get_db), user:User= Depends(current_user)):
-    app= db.query(Application).filter(Application.user_id == user.id).all()
-    if not app:
-        raise HTTPException(
-            status_code= 404,
-            detail="no data available"
-        )
-    return app
+@app.get("/applications")
+def get_data(page: int= Query(1,ge=1),
+             size:int=Query(10,ge=1,le=50),
+             status: Optional[str]=Query(None),
+             sort_by: str=Query("created_at"),
+             order: str= Query("desc"),
+             db:Session= Depends(get_db), 
+             user:User= Depends(current_user)):
+    # app= db.query(Application).filter(Application.user_id == user.id).all()
+    if sort_by not in ALLOWED_SORT_FIELDS:
+        raise HTTPException(status_code=400, detail=f"sort_by is not from {ALLOWED_SORT_FIELDS} fields")
+    query = db.query(Application).filter(Application.user_id == user.id)
+    if status:
+        query=query.filter(Application.status == status)
+
+    sort_column= getattr(Application,sort_by,Application.created_at)
+    # print(f"sort_column :{sort_column}")
+    if order == "desc":
+        query=query.order_by(sort_column.desc())
+    else:
+        query=query.order_by(sort_column.asc())
+
+    total=query.count()
+    items=query.offset((page-1)*size).limit(size).all()
+    return {
+        "page":page,
+        "size":size,
+        "total":total,
+        "pages":(total+size-1)//size,
+        "items":[schemas.Applicationout.model_validate(i) for i in items]
+    }
 
 @app.get("/get/{app_id}", response_model=schemas.Applicationout)
 def get_data_id(app_id: int, db: Session = Depends(get_db),user: User=Depends(current_user)):
