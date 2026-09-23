@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException,Query
+from fastapi import FastAPI, Depends, HTTPException,Query,Request,Response
 from fastapi.security import OAuth2PasswordRequestForm
 from app.database import Base, engine,get_db
 from app.dependencies import current_user
@@ -7,10 +7,26 @@ from app.models import Application, User
 from sqlalchemy.orm import Session
 from app import schemas
 from typing import Optional
+from app.cache_key import lifespan,user_key_builder
+from fastapi_cache.decorator import cache
+from fastapi_cache import FastAPICache
+from time import perf_counter
 
-
-app=FastAPI()
+app=FastAPI(lifespan=lifespan)
 ALLOWED_SORT_FIELDS = {"created_at", "company", "role", "status"}
+
+
+@app.middleware("http")
+async def log_applications_response_time(request: Request, call_next):
+    if request.method != "GET" or request.url.path != "/applications":
+        return await call_next(request)
+
+    start_time = perf_counter()
+    try:
+        return await call_next(request)
+    finally:
+        elapsed_ms = (perf_counter() - start_time) * 1000
+        print(f"{request.method} {request.url.path} completed in {elapsed_ms:.2f} ms", flush=True)
 
 # Base.metadata.create_all(bind=engine)
 @app.get("/")
@@ -39,22 +55,28 @@ def login(form: OAuth2PasswordRequestForm= Depends(), db: Session=Depends(get_db
     return {"access_token":token, "token_type": "bearer"}
 
 
-@app.post("/applications", response_model=schemas.Applicationout)
-def add_data(data: schemas.ApplicationCreate,db:Session=Depends(get_db),user:User= Depends(current_user)):
+@app.post("/application", response_model=schemas.Applicationout)
+async def add_data(data: schemas.ApplicationCreate,           db:Session=Depends(get_db),user:User= Depends(current_user)):
     app=Application(**data.model_dump(), user_id=user.id)
     db.add(app)
     db.commit()
     db.refresh(app)
+    await FastAPICache.clear(namespace=f"api-cache:app.main:list_applications:{user.id}")
     return app
 
 @app.get("/applications")
-def get_data(page: int= Query(1,ge=1),
-             size:int=Query(10,ge=1,le=50),
+@cache(expire=60, key_builder=user_key_builder)
+async def get_data(request:Request,
+                   response: Response,
+             page: int= Query(1,ge=1),
+             size:int=Query(10,ge=1,le=100),
              status: Optional[str]=Query(None),
              sort_by: str=Query("created_at"),
              order: str= Query("desc"),
              db:Session= Depends(get_db), 
              user:User= Depends(current_user)):
+    # print("!!! DB QUERY RAN !!!")
+
     # app= db.query(Application).filter(Application.user_id == user.id).all()
     if sort_by not in ALLOWED_SORT_FIELDS:
         raise HTTPException(status_code=400, detail=f"sort_by is not from {ALLOWED_SORT_FIELDS} fields")
