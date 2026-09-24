@@ -1,6 +1,16 @@
-from sqlalchemy import Column, Integer, String, DateTime,ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime,ForeignKey,UniqueConstraint
 from sqlalchemy.sql import func
 from app.database import Base
+
+class Job(Base):
+    __tablename__ = "jobs"
+    __table_args__ = (UniqueConstraint("url",name="uq_job_url"),)
+
+    id =Column(Integer,primary_key=True,index=True)
+    title=Column(String,nullable=False)
+    company=Column(String,nullable=False)
+    url = Column(String,nullable=True)
+    scraped_at=Column(DateTime(timezone=True),server_default=func.now())
 
 class User(Base):
     __tablename__=  "users"

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException,Query,Request,Response
+from fastapi import FastAPI, Depends, HTTPException,Query,Request,Response,BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from app.database import Base, engine,get_db
 from app.dependencies import current_user
@@ -11,6 +11,7 @@ from app.cache_key import lifespan,user_key_builder
 from fastapi_cache.decorator import cache
 from fastapi_cache import FastAPICache
 from time import perf_counter
+from app.tasks import send_welcome_mail
 
 app=FastAPI(lifespan=lifespan)
 ALLOWED_SORT_FIELDS = {"created_at", "company", "role", "status"}
@@ -36,7 +37,7 @@ def root():
     }
 
 @app.post("/register", response_model=schemas.UserOut)
-def register(data: schemas.UserCreate, db: Session= Depends(get_db)):
+def register(data: schemas.UserCreate, background_tasks: BackgroundTasks, db: Session= Depends(get_db)):
     existing=db.query(User).filter(User.email==data.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already exists")
@@ -44,6 +45,8 @@ def register(data: schemas.UserCreate, db: Session= Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    background_tasks.add_task(send_welcome_mail,user.email)
     return user
 
 @app.post("/login", response_model=schemas.Token)
