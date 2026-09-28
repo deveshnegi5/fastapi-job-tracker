@@ -11,9 +11,19 @@ from app.cache_key import lifespan,user_key_builder
 from fastapi_cache.decorator import cache
 from fastapi_cache import FastAPICache
 from time import perf_counter
+from logging import getLogger
+from redis.exceptions import RedisError
 
 app=FastAPI(lifespan=lifespan)
+logger = getLogger(__name__)
 ALLOWED_SORT_FIELDS = {"created_at", "company", "role", "status"}
+
+
+async def invalidate_application_cache():
+    try:
+        await FastAPICache.clear()
+    except RedisError:
+        logger.exception("Could not invalidate the application cache")
 
 
 @app.middleware("http")
@@ -62,7 +72,7 @@ async def add_data(data: schemas.ApplicationCreate,           db:Session=Depends
     db.add(app)
     db.commit()
     db.refresh(app)
-    await FastAPICache.clear()
+    await invalidate_application_cache()
     return app
 
 @app.get("/applications")
@@ -112,8 +122,11 @@ def get_data_id(app_id: int, db: Session = Depends(get_db),user: User=Depends(cu
     return app
 
 @app.put("/applications/{app_id}", response_model=schemas.Applicationout)
-def update(app_id: int, data: schemas.ApplicationCreate, db: Session = Depends(get_db), user:User=Depends(current_user)):
-    app=db.query(Application).filter(Application.user_id == user.id).first()
+async def update(app_id: int, data: schemas.ApplicationCreate, db: Session = Depends(get_db), user:User=Depends(current_user)):
+    app = db.query(Application).filter(
+        Application.id == app_id,
+        Application.user_id == user.id,
+    ).first()
     if not app:
         raise HTTPException(
             status_code=404,
@@ -123,12 +136,15 @@ def update(app_id: int, data: schemas.ApplicationCreate, db: Session = Depends(g
         setattr(app,key, value)
     db.commit()
     db.refresh(app)
+    await invalidate_application_cache()
     return app
 
 @app.delete("/applications/{app_id}")
-def delete(app_id: int, db: Session = Depends(get_db),user:User=Depends(current_user)):
-
-    app= db.query(Application).filter(Application.user_id == user.id).first()
+async def delete(app_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    app = db.query(Application).filter(
+        Application.id == app_id,
+        Application.user_id == user.id,
+    ).first()
     if not app:
         raise HTTPException(
             status_code=404,
@@ -136,4 +152,5 @@ def delete(app_id: int, db: Session = Depends(get_db),user:User=Depends(current_
         )
     db.delete(app)
     db.commit()
+    await invalidate_application_cache()
     return {"message": f"Deleted id {app_id}"}
