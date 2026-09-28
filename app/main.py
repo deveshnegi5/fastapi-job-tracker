@@ -56,13 +56,13 @@ def login(form: OAuth2PasswordRequestForm= Depends(), db: Session=Depends(get_db
     return {"access_token":token, "token_type": "bearer"}
 
 
-@app.post("/application", response_model=schemas.Applicationout)
+@app.post("/applications", response_model=schemas.Applicationout)
 async def add_data(data: schemas.ApplicationCreate,           db:Session=Depends(get_db),user:User= Depends(current_user)):
     app=Application(**data.model_dump(), user_id=user.id)
     db.add(app)
     db.commit()
     db.refresh(app)
-    await FastAPICache.clear(namespace=f"api-cache:app.main:list_applications:{user.id}")
+    await FastAPICache.clear()
     return app
 
 @app.get("/applications")
@@ -102,7 +102,7 @@ async def get_data(request:Request,
         "items":[schemas.Applicationout.model_validate(i) for i in items]
     }
 
-@app.get("/get/{app_id}", response_model=schemas.Applicationout)
+@app.get("/applications/{app_id}", response_model=schemas.Applicationout)
 def get_data_id(app_id: int, db: Session = Depends(get_db),user: User=Depends(current_user)):
     app = db.query(Application).filter(
         Application.id == app_id, 
@@ -111,7 +111,7 @@ def get_data_id(app_id: int, db: Session = Depends(get_db),user: User=Depends(cu
         raise HTTPException(status_code=404, detail=f"ID {app_id} not found")
     return app
 
-@app.put("/update/{app_id}", response_model=schemas.Applicationout)
+@app.put("/applications/{app_id}", response_model=schemas.Applicationout)
 def update(app_id: int, data: schemas.ApplicationCreate, db: Session = Depends(get_db), user:User=Depends(current_user)):
     app=db.query(Application).filter(Application.user_id == user.id).first()
     if not app:
@@ -125,7 +125,7 @@ def update(app_id: int, data: schemas.ApplicationCreate, db: Session = Depends(g
     db.refresh(app)
     return app
 
-@app.delete("/delete/{app_id}")
+@app.delete("/applications/{app_id}")
 def delete(app_id: int, db: Session = Depends(get_db),user:User=Depends(current_user)):
 
     app= db.query(Application).filter(Application.user_id == user.id).first()

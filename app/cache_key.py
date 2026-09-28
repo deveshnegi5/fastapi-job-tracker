@@ -7,11 +7,15 @@ from contextlib import asynccontextmanager
 from redis import asyncio
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.backends.inmemory import InMemoryBackend
 
 @asynccontextmanager
 async def lifespan(_:FastAPI):
-    redis= asyncio.from_url(os.getenv("REDIS_URL"))
-    FastAPICache.init(RedisBackend(redis), prefix="api-cache")
+    if os.getenv("TESTING") == "1":
+        FastAPICache.init(InMemoryBackend(), prefix="api-cache")
+    else:
+        redis = asyncio.from_url(os.getenv("REDIS_URL"))
+        FastAPICache.init(RedisBackend(redis), prefix="api-cache")
     yield
 
 def user_key_builder(func,namespace:str="", request:Request=None,response:Response=None,*args,**kwargs):

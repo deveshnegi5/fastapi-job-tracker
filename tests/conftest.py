@@ -1,14 +1,17 @@
 import os
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv()
+os.environ["TESTING"] = "1"
+os.environ["SECRET_KEY"] = "test-secret-key-at-least-32-bytes-long"
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.database import Base, get_db
-from dotenv import load_dotenv
-
-load_dotenv()
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
 engine = create_engine(TEST_DATABASE_URL)
